@@ -15,9 +15,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var db *sql.DB
-
 func main() {
+	var db *sql.DB
+
 	dbinfo := fmt.Sprintf("user=%s dbname=%s password=%s host=%s sslmode=disable",
 		"postgres",
 		"postgres",
@@ -59,18 +59,9 @@ func main() {
 	httpClient := config.Client(oauth1.NoContext, token)
 	client := twitter.NewClient(httpClient)
 
+	store := &URLStore{db}
 	demux := twitter.NewSwitchDemux()
-	demux.Tweet = func(t *twitter.Tweet) {
-		fmt.Println(t.Text)
-		for _, url := range t.Entities.Urls {
-			var id int
-			err := db.QueryRow("INSERT INTO urls(url) VALUES($1) RETURNING id;", url.ExpandedURL).Scan(&id)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Printf("\t%d %s\n", id, url)
-		}
-	}
+	demux.Tweet = TweetHandler(store)
 
 	params := &twitter.StreamUserParams{
 		With:          "followings",
@@ -88,4 +79,30 @@ func main() {
 	log.Println(<-ch)
 
 	stream.Stop()
+}
+
+type DataStore interface {
+	CreateURL(string) (int, error)
+}
+
+func TweetHandler(db DataStore) func(*twitter.Tweet) {
+	return func(t *twitter.Tweet) {
+		fmt.Println(t.Text)
+		for _, url := range t.Entities.Urls {
+			id, err := db.CreateURL(url.ExpandedURL)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Printf("\t%d %s\n", id, url.ExpandedURL)
+		}
+	}
+}
+
+type URLStore struct {
+	*sql.DB
+}
+
+func (db *URLStore) CreateURL(url string) (id int, err error) {
+	err = db.QueryRow("INSERT INTO urls(url) VALUES($1) RETURNING id;", url).Scan(&id)
+	return id, err
 }
