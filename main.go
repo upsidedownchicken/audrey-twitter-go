@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/coreos/pkg/flagutil"
 	"github.com/dghubble/go-twitter/twitter"
@@ -16,20 +17,38 @@ import (
 )
 
 func main() {
+	// Wait for DB
+	time.Sleep(2000 * time.Millisecond)
+
 	var db *sql.DB
 
+	dbFlags := flag.NewFlagSet("postgres", flag.ExitOnError)
+	dbName := dbFlags.String("db", "", "Postgres Database")
+	dbHost := dbFlags.String("host", "", "Postgres Host")
+	dbPassword := dbFlags.String("password", "", "Postgres Password")
+	dbUser := dbFlags.String("user", "", "Postgres User")
+
+	dbFlags.Parse(os.Args[1:])
+	flagutil.SetFlagsFromEnv(dbFlags, "POSTGRES")
+
 	dbinfo := fmt.Sprintf("user=%s dbname=%s password=%s host=%s sslmode=disable",
-		"postgres",
-		"postgres",
-		"postgres",
-		"postgres",
+		*dbUser,
+		*dbName,
+		*dbPassword,
+		*dbHost,
 	)
+
 	var err error
 	db, err = sql.Open("postgres", dbinfo)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Open failed: %v", err)
 	}
 	defer db.Close()
+
+	err = db.Ping()
+	if err != nil {
+		log.Fatal("Ping failed: %v", err)
+	}
 
 	_, err = db.Exec(
 		`CREATE TABLE IF NOT EXISTS urls (
@@ -62,6 +81,9 @@ func main() {
 	store := &URLStore{db}
 	demux := twitter.NewSwitchDemux()
 	demux.Tweet = TweetHandler(store)
+	demux.Event = func(event *twitter.Event) {
+		log.Println("EVENT ", event)
+	}
 
 	params := &twitter.StreamUserParams{
 		With:          "followings",
@@ -72,6 +94,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	log.Println("Ready")
 	go demux.HandleChan(stream.Messages)
 
 	ch := make(chan os.Signal)
@@ -87,13 +110,27 @@ type DataStore interface {
 
 func TweetHandler(db DataStore) func(*twitter.Tweet) {
 	return func(t *twitter.Tweet) {
-		fmt.Println(t.Text)
+		recordType := "TWEET"
+
+		if t.InReplyToStatusID > 0 {
+			recordType = "REPLY"
+		}
+
+		if t.QuotedStatusID > 0 {
+			recordType = "QUOTE"
+		}
+
+		if t.RetweetedStatus != nil {
+			recordType = "RETWEET"
+		}
+
+		log.Println(recordType, t.ID, t.User.ScreenName, t.Text)
 		for _, url := range t.Entities.Urls {
 			id, err := db.CreateURL(url.ExpandedURL)
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Printf("\t%d %s\n", id, url.ExpandedURL)
+			log.Println("URL", id, t.ID, url.ExpandedURL)
 		}
 	}
 }
