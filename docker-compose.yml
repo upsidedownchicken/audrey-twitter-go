@@ -10,6 +10,7 @@ services:
     volumes:
       - .:/app
   postgres:
+    env_file: .env.docker
     image: postgres:latest
     ports:
       - '5432'
