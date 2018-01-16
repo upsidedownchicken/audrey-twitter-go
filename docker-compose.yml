@@ -1,16 +1,20 @@
-version: '2'
+version: '3'
 services:
-  store:
-    image: postgres:latest
-    volumes:
-      - /var/lib/postgresql/data
-    command: "true"
-  postgres:
-    image: postgres:latest
-    volumes_from:
-      - store
-  go:
+  app:
     build: .
-    command: bash -c ". .env && app"
-    links:
-      - postgres:db
+    command: app
+    depends_on:
+      - postgres
+    env_file: .env.docker
+    image: app
+    volumes:
+      - .:/app
+  postgres:
+    env_file: .env.docker
+    image: postgres:latest
+    ports:
+      - '5432'
+    volumes:
+      - ./data/postgresql:/var/lib/postgresql/data
+volumes:
+  gem_cache:
