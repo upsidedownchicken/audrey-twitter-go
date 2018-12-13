@@ -41,13 +41,13 @@ func main() {
 	var err error
 	db, err = sql.Open("postgres", dbinfo)
 	if err != nil {
-		log.Fatal("Open failed: %v", err)
+		log.Fatal("Open failed:", err)
 	}
 	defer db.Close()
 
 	err = db.Ping()
 	if err != nil {
-		log.Fatal("Ping failed: %v", err)
+		log.Fatal("Ping failed:", err)
 	}
 
 	_, err = db.Exec(
@@ -79,6 +79,26 @@ func main() {
 	client := twitter.NewClient(httpClient)
 
 	store := &URLStore{db}
+
+	// make sure the client is working
+	// see
+	tweets, _, err := client.Timelines.HomeTimeline(&twitter.HomeTimelineParams{
+		Count: 20,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, t := range tweets {
+		log.Println(t.ID, t.User.ScreenName, t.Text)
+		for _, url := range t.Entities.Urls {
+			id, err := store.CreateURL(url.ExpandedURL)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Println("URL", id, t.ID, url.ExpandedURL)
+		}
+	}
+
 	demux := twitter.NewSwitchDemux()
 	demux.Tweet = TweetHandler(store)
 	demux.Event = func(event *twitter.Event) {
@@ -110,6 +130,7 @@ type DataStore interface {
 
 func TweetHandler(db DataStore) func(*twitter.Tweet) {
 	return func(t *twitter.Tweet) {
+		log.Println("called")
 		recordType := "TWEET"
 
 		if t.InReplyToStatusID > 0 {

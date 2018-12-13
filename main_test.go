@@ -24,6 +24,7 @@ func TestTweetHandler(t *testing.T) {
 				twitter.URLEntity{ExpandedURL: url},
 			},
 		},
+		User: &twitter.User{},
 	}
 
 	handler(tweet)
